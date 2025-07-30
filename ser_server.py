@@ -202,12 +202,32 @@ def gerenciar_servidor_input(servidor_socket):
             print(f"Comando '{comando}' desconhecido.")
 
 
+def get_local_ip():
+    """Função para obter o endereço de IP local da máquina."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Não precisa ser alcançável, apenas força o SO a escolher uma interface
+        s.connect(('8.8.8.8', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'  # Fallback para localhost
+    finally:
+        s.close()
+    return IP
+
+
 def main():
     servidor_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     servidor_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     servidor_socket.bind((HOST, PORT))
     servidor_socket.listen(5)
-    print(f"[*] Servidor (protocolo final) escutando em {HOST}:{PORT}")
+
+    local_ip = get_local_ip()
+    print("=" * 40)
+    print(f"[*] Servidor (protocolo final) iniciado.")
+    print(f"[*] Escutando em todas as interfaces: {HOST}:{PORT}")
+    print(f"[*] IP local para conexão na rede: {local_ip}:{PORT}")
+    print("=" * 40)
 
     # Thread para gerenciar o início das partidas
     thread_gerenciador_partida = threading.Thread(target=gerenciar_partida, daemon=True)
@@ -222,7 +242,7 @@ def main():
             conn, addr = servidor_socket.accept()
             with global_lock:
                 clientes_conectados.append(conn)
-            print(f"Nova conexão aceita. Clientes online: {len(clientes_conectados)}")
+            print(f"Nova conexão aceita de {addr}. Clientes online: {len(clientes_conectados)}")
             thread_cliente = threading.Thread(target=lidar_com_cliente, args=(conn, addr))
             thread_cliente.start()
     except OSError:
