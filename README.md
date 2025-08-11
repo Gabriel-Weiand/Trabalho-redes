@@ -1,4 +1,5 @@
 # Projeto de Redes: Jogo Pedra, Papel e Tesoura
+
 ## Descrição:
 
 Este trabalho final de redes tem o propósito de criar um jogo de pedra, papel e tesoura.
@@ -53,7 +54,7 @@ Cada mensagem possui dois campos principais, type e payload, como exemplificado 
 ```json
 {
   "type": "NOME_DO_COMANDO",
-  "payload": { ... }
+  "payload": { "flag" : "conteudo" }
 }
 ```
 E ainda diferentes tipos de payload, como listados e exemplificados abaixo:

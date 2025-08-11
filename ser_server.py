@@ -1,10 +1,11 @@
-# servidor.py (Protocolo Final)
+# servidor.py (Protocolo JSON)
 
 import socket
 import threading
 import time
 import sys
 import os
+import json  # Importar a biblioteca json
 
 # --- Configurações do Servidor ---
 HOST = '0.0.0.0'
@@ -23,7 +24,7 @@ def determinar_vencedor(jogada1, jogador1, jogada2, jogador2):
     if jogada1 == 'TIMEOUT' and jogada2 != 'TIMEOUT':
         return jogador2, jogador1
     if jogada2 == 'TIMEOUT' and jogada1 != 'TIMEOUT':
-        return jogador1, jogador2
+        return jogador1, jogada2
     if jogada1 == 'TIMEOUT' and jogada2 == 'TIMEOUT':
         return None, None  # Ambos perdem
 
@@ -37,29 +38,39 @@ def determinar_vencedor(jogada1, jogador1, jogada2, jogador2):
 
 
 # --- Comunicação ---
-def enviar_comando(cliente_socket, comando, payload=""):
+def enviar_comando(cliente_socket, comando_type, payload_data={}):
+    """
+    Envia uma mensagem JSON para o cliente.
+    comando_type: string (ex: 'MAT', 'PLA', 'WIN')
+    payload_data: dict (dados a serem incluídos no payload)
+    """
     try:
-        # Garante que o payload seja uma string para o encode
-        mensagem = f"{comando.upper()} {payload}\n".encode('utf-8')
-        cliente_socket.sendall(mensagem)
+        mensagem_json = {
+            "type": comando_type.upper(),
+            "payload": payload_data
+        }
+        mensagem = json.dumps(mensagem_json) + '\n'  # Adiciona a quebra de linha no final
+        cliente_socket.sendall(mensagem.encode('utf-8'))
     except (BrokenPipeError, ConnectionResetError):
-        print(f"AVISO: Conexão com o cliente foi perdida ao tentar enviar comando.")
+        print(f"AVISO: Conexão com o cliente foi perdida ao tentar enviar comando '{comando_type}'.")
+    except Exception as e:
+        print(f"ERRO ao enviar comando '{comando_type}' para o cliente: {e}")
 
 
 def enviar_ranking_para_cliente(cliente_socket):
     with global_lock:
-        ranking_payload = ",".join([f"{nome}:{vitorias}" for nome, vitorias in ranking.items()])
-    enviar_comando(cliente_socket, 'RAN', ranking_payload)
+        # Converte o dicionário de ranking para o formato de lista de objetos JSON
+        ranking_list = [{"nome": nome, "vitorias": vitorias} for nome, vitorias in ranking.items()]
+    enviar_comando(cliente_socket, 'RAN', {"ranking": ranking_list})
 
 
-def broadcast_comando(comando, payload=""):
+def broadcast_comando(comando_type, payload_data={}):
     with global_lock:
-        # Cria uma cópia para evitar problemas de concorrência se a lista mudar
         clientes_a_notificar = list(clientes_conectados)
 
-    print(f"Enviando '{comando}' para {len(clientes_a_notificar)} clientes.")
+    print(f"Enviando '{comando_type}' para {len(clientes_a_notificar)} clientes.")
     for sock in clientes_a_notificar:
-        enviar_comando(sock, comando, payload)
+        enviar_comando(sock, comando_type, payload_data)
 
 
 # --- Gerenciamento da Lógica ---
@@ -73,43 +84,40 @@ def gerenciar_partida():
 
         if jogador1_info and jogador2_info:
             print(f"Iniciando partida entre {jogador1_info['nome']} e {jogador2_info['nome']}")
-            enviar_comando(jogador1_info['socket'], 'MAT', jogador2_info['nome'])
-            enviar_comando(jogador2_info['socket'], 'MAT', jogador1_info['nome'])
+            # MAT: oponente
+            enviar_comando(jogador1_info['socket'], 'MAT', {"oponente": jogador2_info['nome']})
+            enviar_comando(jogador2_info['socket'], 'MAT', {"oponente": jogador1_info['nome']})
             time.sleep(0.5)
 
             pontos = {jogador1_info['nome']: 0, jogador2_info['nome']: 0}
             for rodada in range(1, 4):
+                print(f"Partida {jogador1_info['nome']} vs {jogador2_info['nome']} - Rodada {rodada}")
+                # PLA: payload vazio
                 enviar_comando(jogador1_info['socket'], 'PLA')
                 enviar_comando(jogador2_info['socket'], 'PLA')
 
-                # MODIFICADO: Timeout de 5 minutos
-                tempo_limite = time.time() + 300
-                while (not jogador1_info.get('jogada_atual') or not jogador2_info.get(
-                        'jogada_atual')) and time.time() < tempo_limite:
+                tempo_limite = time.time() + 300  # 5 minutos
+                while (jogador1_info.get('jogada_atual') is None or jogador2_info.get(
+                        'jogada_atual') is None) and time.time() < tempo_limite:
                     time.sleep(0.1)
 
                 jogada1 = jogador1_info.get('jogada_atual', 'TIMEOUT')
                 jogada2 = jogador2_info.get('jogada_atual', 'TIMEOUT')
 
-                # MODIFICADO: Lógica de envio de resultado da rodada
                 vencedor_info, perdedor_info = determinar_vencedor(jogada1, jogador1_info, jogada2, jogador2_info)
 
                 if not vencedor_info:
                     # Empate: envia a jogada do oponente (que é a mesma)
-                    enviar_comando(jogador1_info['socket'], 'TIE', jogada2)
-                    enviar_comando(jogador2_info['socket'], 'TIE', jogada1)
+                    enviar_comando(jogador1_info['socket'], 'TIE', {"jogada_oponente": jogada2})
+                    enviar_comando(jogador2_info['socket'], 'TIE', {"jogada_oponente": jogada1})
                 else:
                     # Vitória/Derrota
                     if vencedor_info == jogador1_info:
-                        # Jogador 1 venceu, envia a jogada do perdedor (jogador 2)
-                        enviar_comando(jogador1_info['socket'], 'WIN', jogada2)
-                        # Jogador 2 perdeu, envia a jogada do vencedor (jogador 1)
-                        enviar_comando(jogador2_info['socket'], 'LOS', jogada1)
+                        enviar_comando(jogador1_info['socket'], 'WIN', {"jogada_oponente": jogada2})
+                        enviar_comando(jogador2_info['socket'], 'LOS', {"jogada_oponente": jogada1})
                     else:  # vencedor_info == jogador2_info
-                        # Jogador 2 venceu, envia a jogada do perdedor (jogador 1)
-                        enviar_comando(jogador2_info['socket'], 'WIN', jogada1)
-                        # Jogador 1 perdeu, envia a jogada do vencedor (jogador 2)
-                        enviar_comando(jogador1_info['socket'], 'LOS', jogada2)
+                        enviar_comando(jogador2_info['socket'], 'WIN', {"jogada_oponente": jogada1})
+                        enviar_comando(jogador1_info['socket'], 'LOS', {"jogada_oponente": jogada2})
 
                     pontos[vencedor_info['nome']] += 1
                     with global_lock:
@@ -127,8 +135,9 @@ def gerenciar_partida():
 
             msg_final = "A partida terminou em empate!" if not vencedor_final_nome else f"O vencedor da partida foi {vencedor_final_nome}!"
 
-            enviar_comando(jogador1_info['socket'], 'END', msg_final)
-            enviar_comando(jogador2_info['socket'], 'END', msg_final)
+            # END: mensagem
+            enviar_comando(jogador1_info['socket'], 'END', {"mensagem": msg_final})
+            enviar_comando(jogador2_info['socket'], 'END', {"mensagem": msg_final})
             print(f"Partida entre {jogador1_info['nome']} e {jogador2_info['nome']} finalizada.")
 
         time.sleep(1)
@@ -140,36 +149,50 @@ def lidar_com_cliente(conn, addr):
     buffer = ""
     try:
         while True:
-            dados = conn.recv(1024).decode('utf-8')
+            dados = conn.recv(4096).decode('utf-8')
             if not dados: break
 
             buffer += dados
             while '\n' in buffer:
                 linha, buffer = buffer.split('\n', 1)
-                partes = linha.strip().split(' ', 1)
-                comando = partes[0].upper()
-                payload = partes[1] if len(partes) > 1 else ""
+
+                try:
+                    mensagem_json = json.loads(linha)
+                    comando = mensagem_json.get('type', '').upper()
+                    payload = mensagem_json.get('payload', {})
+                except json.JSONDecodeError:
+                    print(f"ERRO: Mensagem JSON inválida recebida de {addr}: {linha}")
+                    continue  # Ignora a mensagem inválida e continua
 
                 if comando == 'CON' and not jogador_info:
-                    nome_jogador = payload
-                    jogador_info = {
-                        'socket': conn, 'addr': addr, 'nome': nome_jogador, 'jogada_atual': None
-                    }
-                    with global_lock:
-                        jogadores_em_espera.append(jogador_info)
-                        if nome_jogador not in ranking: ranking[nome_jogador] = 0
-                    print(f"Jogador '{nome_jogador}' associado à conexão {addr}.")
+                    nome_jogador = payload.get('nome')
+                    if nome_jogador:
+                        jogador_info = {
+                            'socket': conn, 'addr': addr, 'nome': nome_jogador, 'jogada_atual': None
+                        }
+                        with global_lock:
+                            jogadores_em_espera.append(jogador_info)
+                            if nome_jogador not in ranking: ranking[nome_jogador] = 0
+                        print(f"Jogador '{nome_jogador}' associado à conexão {addr}.")
+                    else:
+                        print(f"ERRO: Comando CON sem nome de jogador de {addr}.")
 
                 elif comando in ['ROC', 'PAP', 'SCI']:
                     if jogador_info:
                         print(f"Recebida jogada '{comando}' de {jogador_info['nome']}")
                         jogador_info['jogada_atual'] = comando.lower()
+                    else:
+                        print(f"AVISO: Jogada '{comando}' recebida de cliente não identificado ({addr}).")
 
                 elif comando == 'RAN':
                     enviar_ranking_para_cliente(conn)
 
                 elif comando == 'QUI':
+                    print(
+                        f"Cliente {addr} ({jogador_info['nome'] if jogador_info else 'Desconhecido'}) solicitou desconexão.")
                     break  # Sai do loop para fechar a conexão
+                else:
+                    print(f"Comando desconhecido '{comando}' de {addr}.")
 
     except (ConnectionResetError, IndexError, ValueError) as e:
         print(f"Erro com o cliente {addr}: {e}")
@@ -189,11 +212,11 @@ def gerenciar_servidor_input(servidor_socket):
     for linha in sys.stdin:
         partes = linha.strip().split(' ', 1)
         comando = partes[0].lower()
-        payload = partes[1] if len(partes) > 1 else "O servidor foi encerrado pelo administrador."
+        payload_msg = partes[1] if len(partes) > 1 else "O servidor foi encerrado pelo administrador."
 
         if comando == "end":
             print("Comando de encerramento recebido...")
-            broadcast_comando("END", payload)
+            broadcast_comando("END", {"mensagem": payload_msg})  # Adiciona a mensagem ao payload
             time.sleep(1)  # Dá um tempo para as mensagens serem enviadas
             servidor_socket.close()
             print("Servidor encerrado.")
@@ -224,7 +247,7 @@ def main():
 
     local_ip = get_local_ip()
     print("=" * 40)
-    print(f"[*] Servidor (protocolo final) iniciado.")
+    print(f"[*] Servidor (protocolo JSON) iniciado.")
     print(f"[*] Escutando em todas as interfaces: {HOST}:{PORT}")
     print(f"[*] IP local para conexão na rede: {local_ip}:{PORT}")
     print("=" * 40)
