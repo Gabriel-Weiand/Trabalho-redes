@@ -5,7 +5,7 @@ import threading
 import sys
 import os
 import json # Importar a biblioteca json
-
+#aaa
 # --- Configurações do Cliente ---
 HOST = '127.0.0.1'
 PORT = 12345
