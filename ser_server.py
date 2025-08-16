@@ -36,7 +36,6 @@ def determinar_vencedor(jogada1, jogador1, jogada2, jogador2):
     else:
         return jogador2, jogador1
 
-
 # --- Comunicação ---
 def enviar_comando(cliente_socket, comando_type, payload_data={}):
     """
@@ -56,13 +55,11 @@ def enviar_comando(cliente_socket, comando_type, payload_data={}):
     except Exception as e:
         print(f"ERRO ao enviar comando '{comando_type}' para o cliente: {e}")
 
-
 def enviar_ranking_para_cliente(cliente_socket):
     with global_lock:
         # Converte o dicionário de ranking para o formato de lista de objetos JSON
         ranking_list = [{"nome": nome, "vitorias": vitorias} for nome, vitorias in ranking.items()]
     enviar_comando(cliente_socket, 'RAN', {"ranking": ranking_list})
-
 
 def broadcast_comando(comando_type, payload_data={}):
     with global_lock:
@@ -71,7 +68,6 @@ def broadcast_comando(comando_type, payload_data={}):
     print(f"Enviando '{comando_type}' para {len(clientes_a_notificar)} clientes.")
     for sock in clientes_a_notificar:
         enviar_comando(sock, comando_type, payload_data)
-
 
 # --- Gerenciamento da Lógica ---
 def gerenciar_partida():
@@ -141,7 +137,6 @@ def gerenciar_partida():
             print(f"Partida entre {jogador1_info['nome']} e {jogador2_info['nome']} finalizada.")
 
         time.sleep(1)
-
 
 def lidar_com_cliente(conn, addr):
     print(f"[NOVA CONEXÃO] {addr} conectado.")
